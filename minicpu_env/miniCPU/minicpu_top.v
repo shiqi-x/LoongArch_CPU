@@ -1,6 +1,9 @@
+// 开头依据tcl console建立的project的话，需要在IP中右键升级一下已经配置好的IP，毕竟现在应该大多数的版本都大于2019.2的配置log了吧
+// 然后我仿真的时候，还是把soc_mini_top作为了top，虽然书上说综合实现的时候作为top没有说仿真细节，而且对于这个5指令的，也没有给出仿真示例，我很难办啊
+
 module minicpu_top(
-    input  wire        clk,
-    input  wire        resetn,
+    input  wire         clk,
+    input  wire         resetn,
 
     output wire        inst_sram_we,
     output wire [31:0] inst_sram_addr,
@@ -34,6 +37,11 @@ wire [31:0] inst;
 wire [ 5:0] op_31_26;
 wire [ 3:0] op_25_22;
 wire [ 1:0] op_21_20;
+// ？？？？？？？？？？？我目前还是不知道这个区分的具体依据是什么
+// ？？？？？？？？？？？但是我相信是依据操作码的，最高位6位操作码，因为需要i12所以之后又分了4位
+// ？？？？？？？？？？？之后又分了2位我看是为了给ra寄存器的，但是目前我们还用不到ra啊，所以我不是很明白为什么还要单独拿出来两位，为了省线嘛？
+// ？？？？？？？？？？？省线的意思是7位decoder需要128条线，但是拆成2+5就只需要4+32条线就能区分这几条指令了
+// ？？？？？？？？？？？不过反正都是需要ra寄存器的，当然我更相信这样的设计是跟指令集息息相关的，我现在也是随便猜测而已
 wire [ 4:0] op_19_15;
 wire [63:0] op_31_26_d;
 wire [15:0] op_25_22_d;
@@ -77,6 +85,8 @@ wire [31:0] alu_result;
 always @(posedge clk) begin
     if (reset) begin
         pc <= 32'h1bfffffc;     //trick: to make nextpc be 0x1c000000 during reset 
+        // ？？？？？？？？？？？？？？为什么这是一个trick，为什么不直接赋值到初始值
+        // 可能和valid有关，reset之后pc来到1bfffffc，valid也刚好为0，保证不会在这条指令发生bne的跳转，而复位完成之后pc也来到1c000000，正确执行第一条指令
     end
     else begin
         pc <= nextpc;
@@ -106,37 +116,37 @@ decoder_5_32 u_dec3(.in(op_19_15 ), .co(op_19_15_d ));
 assign inst_add_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h00];
 assign inst_addi_w = op_31_26_d[6'h00] & op_25_22_d[4'ha];
 assign inst_ld_w   = op_31_26_d[6'h0a] & op_25_22_d[4'h2];
-assign inst_st_w   = ;//在这里实现inst_st_w指令的译码
+assign inst_st_w   = op_31_26_d[6'h0a] & op_25_22_d[4'h6];//在这里实现inst_st_w指令的译码
 assign inst_bne    = op_31_26_d[6'h17];
 
-assign src2_is_imm   = ;//在这里实现立即数选择信号
+assign src2_is_imm   = inst_addi_w | inst_ld_w | inst_st_w;//在这里实现立即数选择信号
 assign res_from_mem  = inst_ld_w;
 assign gr_we         = inst_add_w | inst_ld_w | inst_addi_w;
 assign mem_we        = inst_st_w;
 assign src_reg_is_rd = inst_bne | inst_st_w;
 
 assign rf_raddr1 = rj;
-assign rf_raddr2 = src_reg_is_rd ? rd :rk;
+assign rf_raddr2 = src_reg_is_rd ? rd : rk;
 regfile u_regfile(
     .clk    (clk      ),
-    .raddr1 (         ),
-    .rdata1 (rj_value),
-    .raddr2 (         ),
+    .raddr1 (rf_raddr1),
+    .rdata1 (rj_value ),
+    .raddr2 (rf_raddr2),
     .rdata2 (rkd_value),
     .we     (gr_we    ),
-    .waddr  (         ),
+    .waddr  (rd       ),
     .wdata  (rf_wdata )
     );//在空出的括号里完成引脚匹配
 
-assign br_offs   = ;//在这里完成br_offs信号的生成
+assign br_offs   = {{14{i16[15]}},i16[15:0],2'b0};//在这里完成br_offs信号的生成
 assign br_target = pc + br_offs;
 assign rj_eq_rd  = (rj_value == rkd_value);
 assign br_taken  = valid && inst_bne  && !rj_eq_rd;
-assign nextpc    = ;//在这里实现nextpc信号的生成
+assign nextpc    = br_taken ? br_target : pc + 4;//在这里实现nextpc信号的生成
 
 assign imm      = {{20{i12[11]}},i12[11:0]};
 assign alu_src1 = rj_value;
-assign alu_src2 = ;//在这里实现alu_src2信号
+assign alu_src2 = src2_is_imm ? imm : rkd_value;//在这里实现alu_src2信号
 
 assign alu_result = alu_src1+alu_src2;
 
@@ -144,7 +154,7 @@ assign data_sram_we    = mem_we;
 assign data_sram_addr  = alu_result;
 assign data_sram_wdata = rkd_value;
 
-assign rf_wdata = ;//在这里完成写回寄存器值的选择
+assign rf_wdata = res_from_mem ? data_sram_rdata : alu_result;//在这里完成写回寄存器值的选择
 
 endmodule
                          
