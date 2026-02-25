@@ -1,3 +1,5 @@
+// 因为用git管理的时候已经做了前面四个实验了，所以就直接交了得了
+
 `timescale 1ns/1ps
 
 module show_sw (
